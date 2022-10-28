@@ -1,0 +1,17 @@
+<cars.dat.encrypted>
+ciphersuite: AES/CBC/PKCS5Padding
+key:91342609ae5435f69a23652476e67abc
+iv: 452456817612349899a3425617245613
+integrity: SHA256
+integrity-check: 9123496ab52311a4762a3efe110176233abff246ab52311a4762a3efe1101762
+mackey: NULL
+</cars.dat.encrypted>
+ 
+<monsters.dat.encrypted>
+ciphersuite: RC6/CTR/NoPadding
+key: 476e67a34e5571897612391bcce24512
+iv: 8a451982e562c4877771565261abc1296
+integrity: HMAC-SHA1
+integrity-ckeck: 997612567254197629aa4512761691c156a19920
+mackey: 6af53417a7f5e4321a65a31213048567
+</monsters.dat.encrypted>
