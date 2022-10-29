@@ -26,66 +26,111 @@ public class CryptoStuff
          * @param mode either encrypt (1) or decrypt (2)
          * @param cryptoProperties defines properties
          */
-        public CryptoInstance(int mode, Properties cryptoProperties)
-                throws InvalidAlgorithmParameterException, InvalidKeyException,
-                NoSuchPaddingException, NoSuchAlgorithmException {
+        public CryptoInstance(int mode, Properties cryptoProperties) throws CryptoException {
             // init
-            String cyphersuite = cryptoProperties.getProperty("ciphersuite");
+            try {
+                String cyphersuite = cryptoProperties.getProperty("ciphersuite");
 
-            AlgorithmParameterSpec ivSpec = null;
+                AlgorithmParameterSpec ivSpec = null;
 
-            if (cryptoProperties.containsKey("iv"))
-                ivSpec = new IvParameterSpec(parseStringBytes(cryptoProperties.getProperty("iv")));
+                if (cryptoProperties.containsKey("iv"))
+                    ivSpec = new IvParameterSpec(parseStringBytes(cryptoProperties.getProperty("iv")));
 
-            if (cryptoProperties.containsKey("integrity"))
-            {
-                String integrityCheck = cryptoProperties.getProperty("integrity");
-                if (cryptoProperties.containsKey("mackey"))
-                {
-                    hMac = Mac.getInstance(integrityCheck);
-                    hMac.init(new SecretKeySpec(parseStringBytes(cryptoProperties.getProperty("mackey")), integrityCheck));
+                if (cryptoProperties.containsKey("integrity")) {
+                    String integrityCheck = cryptoProperties.getProperty("integrity");
+                    if (cryptoProperties.containsKey("mackey")) {
+                        hMac = Mac.getInstance(integrityCheck);
+                        hMac.init(new SecretKeySpec(parseStringBytes(cryptoProperties.getProperty("mackey")), integrityCheck));
+                    } else
+                        digest = MessageDigest.getInstance(integrityCheck);
                 }
-                else
-                    digest = MessageDigest.getInstance(integrityCheck);
-            }
 
-            Key secretKey = new SecretKeySpec(parseStringBytes(cryptoProperties.getProperty("key")), cyphersuite.split("/")[0]);
-            cipher = Cipher.getInstance(cyphersuite);
-            cipher.init(mode, secretKey, ivSpec);
+                Key secretKey = new SecretKeySpec(parseStringBytes(cryptoProperties.getProperty("key")), cyphersuite.split("/")[0]);
+                cipher = Cipher.getInstance(cyphersuite);
+                cipher.init(mode, secretKey, ivSpec);
+
+            } catch (InvalidAlgorithmParameterException | InvalidKeyException | NoSuchPaddingException |
+                     NoSuchAlgorithmException e) {
+                throw new CryptoException(e.getMessage(), e);
+            }
         }
 
-        public synchronized byte[] finish(InputStream input) throws IOException, CryptoException {
+        public synchronized byte[] compose(InputStream input) throws IOException, CryptoException {
             byte[] in = input.readAllBytes();
 
             // calculate final plain text length
-            int pTLength = in.length;
+            int oTLength = in.length;
             if (hMac != null)
-                pTLength += hMac.getMacLength();
+                oTLength += hMac.getMacLength();
             else if (digest != null)
-                pTLength += digest.getDigestLength();
+                oTLength += digest.getDigestLength();
 
             // allocate cipher text
-            byte[] cipherText = new byte[cipher.getOutputSize(pTLength)];
+            byte[] transformed = new byte[cipher.getOutputSize(oTLength)];
 
             // encrypt input
             try {
-                if (hMac != null || digest != null) {
-                    int currentCTLength = cipher.update(in, 0, in.length, cipherText, 0);
+                if (hMac != null || digest != null) { // include integrity check, if needed
+                    int currentTTLength = cipher.update(in, 0, in.length, transformed, 0);
 
                     // encrypt integrity check
                     if (hMac != null) {
                         hMac.update(in);
-                        cipher.doFinal(hMac.doFinal(), 0, hMac.getMacLength(), cipherText, currentCTLength);
+                        cipher.doFinal(hMac.doFinal(), 0, hMac.getMacLength(), transformed, currentTTLength);
                     } else if (digest != null) {
                         digest.update(in);
-                        cipher.doFinal(digest.digest(), 0, digest.getDigestLength(), cipherText, currentCTLength);
+                        cipher.doFinal(digest.digest(), 0, digest.getDigestLength(), transformed, currentTTLength);
                     }
                 } else
-                    cipher.doFinal(cipherText, 0);
+                    cipher.doFinal(transformed, 0);
             } catch (IllegalBlockSizeException | BadPaddingException | ShortBufferException e) {
                 throw new CryptoException(e.getMessage(), e);
             }
-            return cipherText;
+            return transformed;
+        }
+
+        public synchronized byte[] decompose(InputStream input) throws IOException, CryptoException {
+            byte[] in = input.readAllBytes();
+
+            try {
+                byte[] transformed = cipher.doFinal(in);
+                int messageLength = transformed.length;
+                // integrity check, if needed
+                if (hMac != null || digest != null)
+                {
+                    byte[] expected = null, actual = null; // integrity checks
+
+                    if (hMac != null)
+                    {
+                        messageLength = transformed.length - hMac.getMacLength();
+
+                        expected = new byte[hMac.getMacLength()];
+                        System.arraycopy(transformed, messageLength, expected, 0, hMac.getMacLength());
+                        hMac.update(transformed, 0, messageLength);
+                        actual = hMac.doFinal();
+                    } else if (digest != null) {
+                        messageLength = transformed.length - digest.getDigestLength();
+
+                        expected = new byte[digest.getDigestLength()];
+                        System.arraycopy(transformed, messageLength, expected, 0, digest.getDigestLength());
+                        digest.update(transformed, 0, messageLength);
+                        actual = digest.digest();
+                    }
+
+                    if (!MessageDigest.isEqual(actual, expected))
+                        throw new CryptoException("Integrity check failed", null);
+                }
+
+                if (messageLength == transformed.length)
+                    return transformed;
+                else {
+                    byte[] message = new byte[messageLength];
+                    System.arraycopy(transformed, 0, message, 0, messageLength);
+                    return message;
+                }
+            } catch (IllegalBlockSizeException | BadPaddingException e) {
+                throw new CryptoException(e.getMessage(), e);
+            }
         }
     }
 

@@ -24,21 +24,18 @@ public class RTSSP_Socket extends DatagramSocket {
 
     private CryptoStuff.CryptoInstance cryptoInstance;
 
-    public RTSSP_Socket(int cipherMode, Properties cryptoProperties) throws SocketException,
-            InvalidAlgorithmParameterException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
+    public RTSSP_Socket(Properties cryptoProperties) throws SocketException, CryptoException {
         super();
-        init(cipherMode, cryptoProperties);
+        init(Cipher.ENCRYPT_MODE, cryptoProperties);
     }
 
-    public RTSSP_Socket(int cipherMode, Properties cryptoProperties, SocketAddress bindaddr) throws SocketException,
-            InvalidAlgorithmParameterException, NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
+    public RTSSP_Socket(Properties cryptoProperties, SocketAddress bindaddr) throws SocketException, CryptoException {
         super(bindaddr);
-        init(cipherMode, cryptoProperties);
+        init(Cipher.DECRYPT_MODE, cryptoProperties);
     }
 
-    private void init(int cipherMode, Properties cryptoProperties) throws InvalidAlgorithmParameterException,
-            NoSuchPaddingException, NoSuchAlgorithmException, InvalidKeyException {
-        this.cryptoInstance = new CryptoStuff.CryptoInstance(Cipher.ENCRYPT_MODE, cryptoProperties);
+    private void init(int cipherMode, Properties cryptoProperties) throws CryptoException {
+        this.cryptoInstance = new CryptoStuff.CryptoInstance(cipherMode, cryptoProperties);
     }
 
     /**
@@ -52,7 +49,7 @@ public class RTSSP_Socket extends DatagramSocket {
         byte[] encrypted = new byte[0];
 
         try {
-            encrypted = cryptoInstance.finish(new ByteArrayInputStream(p.getData(), 0, p.getLength()));
+            encrypted = cryptoInstance.compose(new ByteArrayInputStream(p.getData(), 0, p.getLength()));
         } catch (CryptoException e) {
             throw new RuntimeException(e);
         }
@@ -71,7 +68,7 @@ public class RTSSP_Socket extends DatagramSocket {
         super.receive(p);
         byte[] decrypted = new byte[0];
         try {
-            decrypted = cryptoInstance.finish(new ByteArrayInputStream(p.getData(), 0, p.getLength()));
+            decrypted = cryptoInstance.decompose(new ByteArrayInputStream(p.getData(), 0, p.getLength()));
         } catch (CryptoException e) {
             throw new RuntimeException(e);
         }

@@ -2,8 +2,10 @@ import utils.XMLConfigReader;
 import utils.FileUtils;
 import utils.RTSSP_Packet;
 import utils.RTSSP_Socket;
+import utils.crypto.CryptoException;
 import utils.crypto.CryptoStuff;
 
+import javax.crypto.Cipher;
 import java.io.*;
 import java.net.*;
 import java.util.Arrays;
@@ -79,7 +81,7 @@ class hjStreamServer {
 
 	public static void broadcastStream(String name, DataInputStream stream,
 										SocketAddress broadcastAddr, Properties broadcastCryptoProps)
-			throws IOException, InterruptedException {
+			throws IOException, InterruptedException, CryptoException {
 
 		DatagramSocket s;
 		if (broadcastCryptoProps != null)
