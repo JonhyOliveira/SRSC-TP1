@@ -1,9 +1,0 @@
-These movies are the initial encoded media contents corresponding
-to the movies steramed by the initially provided Streamig Server
-
-In your Project implementation remember that the movies must be initially
-encrypted, and the Steraming Server must use the necessary cryptographic
-configurations to open the related files to check for the integrity, and
-if everything is ok, to start the streaming for the movie in each case.
-
-

@@ -1,0 +1,15 @@
+<127.0.0.1:9999>
+ciphersuite: AES/OFB/NoPadding  		//the ciphersuite for this box	
+key: b356198719e456a6			// AES key, in this case with 128 bits
+iv: 1076ab542789b5f6			// iv for OFB mode
+integrity: SHA1 				// meaning the use of SHA-1 in this case
+mackey: NULL					// Don’t need in this case
+</127.0.0.1:9999>
+ 
+<193.134.156.23:8945>
+ciphersuite: RC6/GCM/NoPadding  		//the ciphersuite for encrypted movie “cars”
+key: 476e67a34e557189			// RC6 key, in this case with 128 bits
+iv: 8a451982e562c487 			// IV for GCM mode
+integrity: NULL				//Don’t need in this case
+mackey: NULL					// Don’t need in this case
+</193.134.156.23:8945>
