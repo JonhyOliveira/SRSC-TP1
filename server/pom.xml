@@ -4,8 +4,8 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <parent>
         <artifactId>TP1</artifactId>
-        <groupId>org.example</groupId>
-        <version>1.0-SNAPSHOT</version>
+        <groupId>srsc.fct.unl.pt</groupId>
+        <version>1.0</version>
     </parent>
     <modelVersion>4.0.0</modelVersion>
 
@@ -21,9 +21,9 @@
 
     <dependencies>
         <dependency>
-            <groupId>org.example</groupId>
+            <groupId>srsc.fct.unl.pt</groupId>
             <artifactId>utils</artifactId>
-            <version>1.0-SNAPSHOT</version>
+            <version>1.0</version>
         </dependency>
     </dependencies>
 

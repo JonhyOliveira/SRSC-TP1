@@ -14,13 +14,15 @@ public class RTSSP_Packet {
      * Composes a packet inside a datagram packet
      * @param packetType the type of the packet
      * @param metadata the packet metadata
-     * @param dest where to write the packet data to
+     * @return the packet data
      */
-    public static void compose(RTSSP_Packet.Type packetType, byte[] metadata, DatagramPacket dest)
+    public static byte[] compose(RTSSP_Packet.Type packetType, byte[] metadata)
     {
-        dest.getData()[0] = ((byte) packetType.ordinal());
-        System.arraycopy(metadata, 0, dest.getData(), 1, metadata.length);
-        dest.setLength(metadata.length + 1);
+        byte[] packet = new byte[metadata.length + 1];
+
+        packet[0] = ((byte) packetType.ordinal());
+        System.arraycopy(metadata, 0, packet, 1, metadata.length);
+        return packet;
     }
 
     /**

@@ -3,34 +3,28 @@ package utils;
 import utils.crypto.CryptoException;
 import utils.crypto.CryptoStuff;
 
-import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
-import javax.crypto.IllegalBlockSizeException;
-import javax.crypto.NoSuchPaddingException;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.SocketAddress;
 import java.net.SocketException;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.InvalidKeyException;
-import java.security.NoSuchAlgorithmException;
 import java.util.Properties;
 
-public class RTSSP_Socket extends DatagramSocket {
+public class RTSSP_Socket {
 
     private CryptoStuff.CryptoInstance cryptoInstance;
+    private DatagramSocket socket;
+    private Telemetry telemetry;
 
     public RTSSP_Socket(Properties cryptoProperties) throws SocketException, CryptoException {
-        super();
+        socket = new DatagramSocket();
         init(Cipher.ENCRYPT_MODE, cryptoProperties);
     }
 
     public RTSSP_Socket(Properties cryptoProperties, SocketAddress bindaddr) throws SocketException, CryptoException {
-        super(bindaddr);
+        socket = new DatagramSocket(bindaddr);
         init(Cipher.DECRYPT_MODE, cryptoProperties);
     }
 
@@ -38,42 +32,53 @@ public class RTSSP_Socket extends DatagramSocket {
         this.cryptoInstance = new CryptoStuff.CryptoInstance(cipherMode, cryptoProperties);
     }
 
+    public void telemetrize(Telemetry telemetry)
+    {
+        this.telemetry = telemetry;
+    }
+
     /**
      * Encrypts and send a packet
-     * @param p   the {@code DatagramPacket} to be sent.
+     * @param data   the {@code data} to be sent.
      *
      * @throws IOException if an I/O error occurs
      */
-    @Override
-    public void send(DatagramPacket p) throws IOException {
+    public void send(byte[] data, SocketAddress addr) throws IOException {
         byte[] encrypted = new byte[0];
 
         try {
-            encrypted = cryptoInstance.compose(new ByteArrayInputStream(p.getData(), 0, p.getLength()));
+            encrypted = cryptoInstance.transform(new ByteArrayInputStream(data, 0, data.length));
         } catch (CryptoException e) {
             throw new RuntimeException(e);
         }
-        DatagramPacket encryptedPacket = new DatagramPacket(encrypted, encrypted.length, p.getSocketAddress());
-        super.send(encryptedPacket);
+
+        if (this.telemetry != null)
+            this.telemetry.recordFrame((long) encrypted.length, (long) data.length);
+
+        //System.out.printf("Sent %d bytes.\n", encrypted.length);
+        socket.send(new DatagramPacket(encrypted, encrypted.length, addr));
     }
 
     /**
-     * Decrypts and sends a packet
-     * @param p   the {@code DatagramPacket} into which to place
-     *                 the incoming data.
+     * Decrypts a packet
      * @throws IOException
      */
-    @Override
-    public void receive(DatagramPacket p) throws IOException {
-        super.receive(p);
-        byte[] decrypted = new byte[0];
+    public byte[] receive() throws IOException {
+        DatagramPacket p = new DatagramPacket(new byte[RTSSP_Packet.BUFFER_SIZE], RTSSP_Packet.BUFFER_SIZE);
+        socket.receive(p);
+
+        // System.out.printf("Got %d bytes.\n", p.getLength());
+
         try {
-            decrypted = cryptoInstance.decompose(new ByteArrayInputStream(p.getData(), 0, p.getLength()));
+            byte[] decrypted = cryptoInstance.transform(new ByteArrayInputStream(p.getData(), 0, p.getLength()));
+
+            if (this.telemetry != null)
+                this.telemetry.recordFrame((long) p.getLength(), (long) decrypted.length);
+            return decrypted;
+
         } catch (CryptoException e) {
             throw new RuntimeException(e);
         }
-
-        System.arraycopy(decrypted, 0, p.getData(), 0, decrypted.length);
-        p.setLength(decrypted.length);
     }
+
 }

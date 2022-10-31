@@ -16,7 +16,7 @@ class ConfigReaderTest {
 
         InputStream is = this.getClass().getClassLoader().getResourceAsStream("server_configs/box-cryptoconfig");
 
-        try (Reader r = new ConfigReader(is, "127.0.0.1:9999"))
+        try (Reader r = new XMLConfigReader(is, "127.0.0.1:9999"))
         {
             Properties movieProps = new Properties();
             movieProps.load(r);
