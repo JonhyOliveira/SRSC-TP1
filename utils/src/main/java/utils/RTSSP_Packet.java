@@ -6,7 +6,7 @@ import java.rmi.UnexpectedException;
 
 public class RTSSP_Packet {
 
-    public enum Type { NULL, START, END, DATA; }
+    public enum Type { NULL, START, END, DATA }
 
     public static final int BUFFER_SIZE = 4096;
 

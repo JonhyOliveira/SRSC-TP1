@@ -15,7 +15,7 @@ import java.util.Properties;
 public class RTSSP_Socket {
 
     private CryptoStuff.CryptoInstance cryptoInstance;
-    private DatagramSocket socket;
+    private final DatagramSocket socket;
     private Telemetry telemetry;
 
     public RTSSP_Socket(Properties cryptoProperties) throws SocketException, CryptoException {
