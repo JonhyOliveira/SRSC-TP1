@@ -4,11 +4,12 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import utils.XMLConfigReader;
 
 import javax.crypto.*;
-import javax.crypto.spec.IvParameterSpec;
-import javax.crypto.spec.SecretKeySpec;
+import javax.crypto.spec.*;
 import java.io.*;
 import java.security.*;
 import java.security.spec.AlgorithmParameterSpec;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.InvalidParameterSpecException;
 import java.util.*;
 
 public class CryptoStuff
@@ -20,6 +21,8 @@ public class CryptoStuff
     public static class CryptoInstance
     {
         private final Cipher cipher;
+        private final SecretKey secretKey;
+        private AlgorithmParameterSpec keyParameterSpec;
         private Mac hMac;
         private MessageDigest digest;
         private final int mode;
@@ -35,11 +38,6 @@ public class CryptoStuff
             try {
                 String ciphersuite = cryptoProperties.getProperty("ciphersuite");
 
-                AlgorithmParameterSpec ivSpec = null;
-
-                if (cryptoProperties.containsKey("iv"))
-                    ivSpec = new IvParameterSpec(parseStringBytes(cryptoProperties.getProperty("iv")));
-
                 if (cryptoProperties.containsKey("integrity")) {
                     String integrityCheck = cryptoProperties.getProperty("integrity");
                     if (cryptoProperties.containsKey("mackey")) {
@@ -49,17 +47,44 @@ public class CryptoStuff
                         digest = MessageDigest.getInstance(integrityCheck);
                 }
 
-                Key secretKey = new SecretKeySpec(parseStringBytes(cryptoProperties.getProperty("key")), ciphersuite.split("/")[0]);
+                if (cryptoProperties.containsKey("iv"))
+                    keyParameterSpec = new IvParameterSpec(parseStringBytes(cryptoProperties.getProperty("iv")));
+                /* NOT WORKING :( else if (cryptoProperties.containsKey("nonce"))
+                    keyParameterSpec = new ChaCha20ParameterSpec(parseStringBytes(cryptoProperties.getProperty("nounce")),
+                            parseStringBytes(cryptoProperties.getProperty("counter"))[0]); */
+                if (cryptoProperties.containsKey("password"))
+                    keyParameterSpec = new PBEParameterSpec(parseStringBytes(cryptoProperties.getProperty("salt")),
+                            100, keyParameterSpec);
+
+
+                if (cryptoProperties.containsKey("key"))
+                    secretKey = new SecretKeySpec(parseStringBytes(cryptoProperties.getProperty("key")), ciphersuite.split("/")[0]);
+                else if (cryptoProperties.containsKey("password"))
+                    secretKey = SecretKeyFactory.getInstance(cryptoProperties.getProperty("ciphersuite"))
+                            .generateSecret(new PBEKeySpec(cryptoProperties.getProperty("password").toCharArray()));
+                else
+                    secretKey = null;
+
                 cipher = Cipher.getInstance(ciphersuite);
-                cipher.init(mode, secretKey, ivSpec);
+                cipher.init(this.mode, secretKey, keyParameterSpec);
 
             } catch (InvalidAlgorithmParameterException | InvalidKeyException | NoSuchPaddingException |
-                     NoSuchAlgorithmException e) {
+                     NoSuchAlgorithmException | InvalidKeySpecException e) {
                 throw new CryptoException(e.getMessage(), e);
             }
         }
 
         public synchronized byte[] transform(InputStream input) throws IOException, CryptoException {
+            /* NOT WORKING :( if (keyParameterSpec instanceof ChaCha20ParameterSpec) {
+                try {
+                    keyParameterSpec = new ChaCha20ParameterSpec(((ChaCha20ParameterSpec) keyParameterSpec).getNonce(),
+                            ((ChaCha20ParameterSpec) keyParameterSpec).getCounter() + 1);
+                    cipher.init(mode, secretKey, keyParameterSpec);
+                } catch (InvalidAlgorithmParameterException | InvalidKeyException e) {
+                    throw new CryptoException(e.getMessage(), e);
+                }
+            }*/
+
             if (mode == Cipher.ENCRYPT_MODE)
                 return compose(input);
             else if (mode == Cipher.DECRYPT_MODE)
@@ -178,7 +203,7 @@ public class CryptoStuff
         }
     }
 
-    private static byte[] parseStringBytes(String s)
+    public static byte[] parseStringBytes(String s)
     {
         byte[] bytes;
         try {

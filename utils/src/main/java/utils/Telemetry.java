@@ -1,15 +1,17 @@
 package utils;
 
+import org.w3c.dom.css.CSSValueList;
+
+import java.io.OutputStream;
 import java.io.PrintStream;
+import java.util.Date;
 import java.util.Objects;
 import java.util.Properties;
 
 public final class Telemetry {
 
+    private final Properties properties;
     private final String streamName;
-    private final String cyphersuite;
-    private final String key;
-    private final String integrityCheck;
     private Integer recordedFrames;
     private Long cipheredStreamSize;
     private Long startTime;
@@ -17,11 +19,10 @@ public final class Telemetry {
     private Long plainStreamSize;
     private Integer corruptedFrames;
 
-    public Telemetry(String streamName, String cyphersuite, String key, String integrityCheck) {
+    public Telemetry(String streamName, Properties streamProperties) {
         this.streamName = streamName;
-        this.cyphersuite = cyphersuite;
-        this.key = key;
-        this.integrityCheck = integrityCheck;
+        this.properties = new Properties();
+        this.properties.putAll(streamProperties);
         this.recordedFrames = 0;
         this.cipheredStreamSize = 0L;
         this.plainStreamSize = 0L;
@@ -39,29 +40,36 @@ public final class Telemetry {
     /**
      * @return the cyphersuite used to cypher data
      */
-    public String cyphersuite() {
-        return cyphersuite;
+    public String ciphersuite() {
+        return properties.getProperty("ciphersuite");
     }
 
     /**
      * @return the key used to cipher data
      */
     public String key() {
-        return key;
+        return properties.getProperty("key");
+    }
+
+    public String password() {
+        return properties.getProperty("password");
     }
 
     /**
      * @return the size of the used key
      */
     public Integer keySize() {
-        return key.getBytes().length;
+        if (key() != null)
+            return key().getBytes().length;
+        else
+            return null;
     }
 
     /**
      * @return the mechanism used for integrity check
      */
     public String integrityCheck() {
-        return integrityCheck;
+        return properties.getProperty("integrity");
     }
 
     /**
@@ -156,9 +164,6 @@ public final class Telemetry {
         if (obj == null || obj.getClass() != this.getClass()) return false;
         var that = (Telemetry) obj;
         return Objects.equals(this.streamName, that.streamName) &&
-                Objects.equals(this.cyphersuite, that.cyphersuite) &&
-                Objects.equals(this.key, that.key) &&
-                Objects.equals(this.integrityCheck, that.integrityCheck) &&
                 Objects.equals(this.recordedFrames, that.recordedFrames) &&
                 Objects.equals(this.cipheredStreamSize, that.cipheredStreamSize) &&
                 Objects.equals(this.elapsedTime(), that.elapsedTime());
@@ -166,16 +171,13 @@ public final class Telemetry {
 
     @Override
     public int hashCode() {
-        return Objects.hash(streamName, cyphersuite, key, integrityCheck, recordedFrames, cipheredStreamSize);
+        return Objects.hash(streamName, recordedFrames, cipheredStreamSize);
     }
 
     @Override
     public String toString() {
         return "Metrics[" +
                 "movieName=" + streamName + ", " +
-                "cyphersuite=" + cyphersuite + ", " +
-                "key=" + key + ", " +
-                "integrityCheck=" + integrityCheck + ", " +
                 "framesSent=" + recordedFrames + ", " +
                 "movieSize=" + cipheredStreamSize + ", " +
                 "elapsedTime=" + elapsedTime() + ']';
@@ -184,10 +186,15 @@ public final class Telemetry {
     public void print(PrintStream printStream) {
         printStream.printf("%n/-- Telemetry for '%s' stream --\\%n", streamName());
         printStream.println(" - Crypto Info - ");
-        printStream.printf("Cyphersuite = '%s'%n", cyphersuite());
-        printStream.printf("Key: %s%n", key());
-        printStream.printf("Key size: %d bytes%n", keySize());
-        printStream.printf("Integrity checker = '%s'%n", integrityCheck());
+        printStream.printf("Ciphersuite = '%s'%n", ciphersuite());
+        if (Objects.nonNull(key())) {
+            printStream.printf("Key: %s%n", key());
+            printStream.printf("Key size: %d bytes%n", keySize());
+        }
+        else if (Objects.nonNull(password()))
+            printStream.printf("Password: %s%n", password());
+        if (Objects.nonNull(integrityCheck()))
+            printStream.printf("Integrity checker = '%s'%n", integrityCheck());
         printStream.println(" - Stream Info - ");
         printStream.printf("%d frames", recordedFrames());
         if (corruptedFrames() > 0)
@@ -208,10 +215,13 @@ public final class Telemetry {
         }
     }
 
-    public static Telemetry fromCryptoProperties(String streamName, Properties properties)
+    public void writeTelemetry(OutputStream outputStream)
     {
-        return new Telemetry(streamName, properties.getProperty("ciphersuite"),
-                properties.getProperty("key"), properties.getProperty("integrity"));
+        PrintStream printStream = new PrintStream(outputStream);
+
+        // printStream.println("timestamp,movie,ciphersuite,key_size,integrity,frames,stream_size,stream_time");
+        printStream.printf("%s,%s,%s,%d,%s,%d,%f,%d%n", new Date(), streamName(), ciphersuite(), keySize(), integrityCheck(),
+                recordedFrames(), streamSize(), elapsedTime());
     }
 
 }

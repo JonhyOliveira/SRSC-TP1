@@ -12,7 +12,7 @@ import java.util.LinkedList;
 import java.util.List;
 import java.util.Properties;
 
-class hjStreamServer {
+public class hjStreamServer {
 
 	private static final boolean DEBUG = false;
 
@@ -108,39 +108,41 @@ class hjStreamServer {
 									   Properties broadcastCryptoProps)
 			throws IOException, InterruptedException, CryptoException {
 
-		Telemetry telemetry = Telemetry.fromCryptoProperties(name, broadcastCryptoProps);
+		Telemetry telemetry = new Telemetry(name, broadcastCryptoProps);
 
-		RTSSP_Socket s = new RTSSP_Socket(broadcastCryptoProps);
-		s.telemetrize(telemetry);
+		try (RTSSP_Socket s = new RTSSP_Socket(broadcastCryptoProps)) {
+			s.telemetrize(telemetry);
 
-		byte[] streamName = name.getBytes();
+			byte[] streamName = name.getBytes();
 
-		telemetry.start();
-		s.send(RTSSP_Packet.compose(RTSSP_Packet.Type.START, streamName), broadcastAddr);
+			telemetry.start();
+			s.send(RTSSP_Packet.compose(RTSSP_Packet.Type.START, streamName), broadcastAddr);
 
-		long t0 = System.nanoTime(); // current time
-		long q0 = 0;
-		int frameSize;
-		long frameTime;
+			long t0 = System.nanoTime(); // current time
+			long q0 = 0;
+			int frameSize;
+			long frameTime;
 
-		while ( stream.available() > 0 ) {
-			frameSize = stream.readShort();
-			frameTime = stream.readLong();
-			if (telemetry.recordedFrames() == 0 ) q0 = frameTime; // ref time encoded
-			long t = System.nanoTime();
-			Thread.sleep( Math.max(0, ((frameTime-q0)-(t-t0))/1000000) );
-			// compose & send packet
-			s.send(RTSSP_Packet.compose(RTSSP_Packet.Type.DATA, stream.readNBytes(frameSize)), broadcastAddr);
-			if (DEBUG)
-				System.out.print( "." ); // only for debug
-			else
-				System.out.printf("\r%10d seconds elapsed, %10.3f kB received, %7.3f kBps", telemetry.elapsedTime() / 1000, telemetry.rawSize(), telemetry.throughput());
-			// comment this for final experiment al observations
+			while (stream.available() > 0) {
+				frameSize = stream.readShort();
+				frameTime = stream.readLong();
+				if (telemetry.recordedFrames() == 0) q0 = frameTime; // ref time encoded
+				long t = System.nanoTime();
+				Thread.sleep(Math.max(0, ((frameTime - q0) - (t - t0)) / 1000000));
+				// compose & send packet
+				s.send(RTSSP_Packet.compose(RTSSP_Packet.Type.DATA, stream.readNBytes(frameSize)), broadcastAddr);
+				if (DEBUG)
+					System.out.print("."); // only for debug
+				else
+					System.out.printf("\r%10d seconds elapsed, %10.3f kB received, %7.3f kBps", telemetry.elapsedTime() / 1000, telemetry.rawSize(), telemetry.throughput());
+				// comment this for final experiment al observations
+			}
+
+			s.send(RTSSP_Packet.compose(RTSSP_Packet.Type.END, streamName), broadcastAddr);
+
+			telemetry.print(System.out);
+			telemetry.writeTelemetry(new FileOutputStream("logfile_server.csv", true));
 		}
-
-		s.send(RTSSP_Packet.compose(RTSSP_Packet.Type.END, streamName), broadcastAddr);
-
-		telemetry.print(System.err);
 	}
 
 }

@@ -5,6 +5,7 @@ import utils.crypto.CryptoStuff;
 
 import javax.crypto.Cipher;
 import java.io.ByteArrayInputStream;
+import java.io.Closeable;
 import java.io.IOException;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
@@ -12,20 +13,20 @@ import java.net.SocketAddress;
 import java.net.SocketException;
 import java.util.Properties;
 
-public class RTSSP_Socket {
+public class RTSSP_Socket implements Closeable {
 
     private CryptoStuff.CryptoInstance cryptoInstance;
     private final DatagramSocket socket;
     private Telemetry telemetry;
 
     public RTSSP_Socket(Properties cryptoProperties) throws SocketException, CryptoException {
-        socket = new DatagramSocket();
         init(Cipher.ENCRYPT_MODE, cryptoProperties);
+        socket = new DatagramSocket();
     }
 
     public RTSSP_Socket(Properties cryptoProperties, SocketAddress bindaddr) throws SocketException, CryptoException {
-        socket = new DatagramSocket(bindaddr);
         init(Cipher.DECRYPT_MODE, cryptoProperties);
+        socket = new DatagramSocket(bindaddr);
     }
 
     private void init(int cipherMode, Properties cryptoProperties) throws CryptoException {
@@ -79,6 +80,16 @@ public class RTSSP_Socket {
         } catch (CryptoException e) {
             throw new RuntimeException(e);
         }
+    }
+
+    @Override
+    public void close() throws IOException {
+        socket.close();
+    }
+
+    public SocketAddress getAddress()
+    {
+        return socket.getRemoteSocketAddress();
     }
 
 }
