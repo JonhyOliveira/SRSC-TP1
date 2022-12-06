@@ -1,8 +1,8 @@
 package srsc.fct.unl.pt;
 
-import box.hjBox;
+import box.Box;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import server.hjStreamServer;
+import server.StreamServer;
 import utils.crypto.CryptoException;
 import utils.crypto.CryptoStuff;
 
@@ -11,7 +11,6 @@ import javax.crypto.KeyGenerator;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
 import java.io.*;
-import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.UnknownHostException;
@@ -57,7 +56,7 @@ public class Main {
         String algo = randomChoice(random, algoToKeysizes.keySet());
         Integer keySize = randomChoice(random, algoToKeysizes.get(algo));
 
-        String mode = randomChoice(random, modes);
+        String mode = "CCM"; randomChoice(random, modes);
 
         String padding = streamAlgos.contains(algo) ? "NoPadding" : mode.equals("ECB") ? "PKCS5Padding" : randomChoice(random, paddings);
 
@@ -200,19 +199,19 @@ public class Main {
         };
         box = new Thread(threadGroup, () -> {
             try {
-                hjBox.broadcast(properties, addr, Set.of(new InetSocketAddress("224.7.7.7", 7777)));
+                Box.broadcast(properties, addr, Set.of(new InetSocketAddress("224.7.7.7", 7777)));
             } catch (IOException | CryptoException e) {
                 System.err.println(e.getMessage());
             }
         });
-        server = new Thread(threadGroup, () -> {
+        /* server = new Thread(threadGroup, () -> {
             try {
-                hjStreamServer.broadcastStream("cars",
+                StreamServer.broadcastStream("cars",
                         new DataInputStream(new FileInputStream("movies/cars.dat")), addr, properties);
             } catch (IOException | InterruptedException | CryptoException e) {
                 System.err.println(e.getMessage());
             }
-        });
+        }); */
         /* timeKeeper = new Thread(threadGroup, () -> {
             long t0 = System.currentTimeMillis();
             while (threadGroup.activeCount() > 1)
@@ -233,11 +232,11 @@ public class Main {
             // timeKeeper.start();
             box.start();
             Thread.sleep(500);
-            if (threadGroup.activeCount() >= 1)
-                server.start();
+            /*if (threadGroup.activeCount() >= 1)
+                server.start();*/
 
             box.join();
-            server.join();
+            // server.join();
 
         } catch (InterruptedException e) {
             System.err.println("FAILED");

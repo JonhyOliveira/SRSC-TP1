@@ -12,9 +12,9 @@ import java.util.Properties;
 import java.util.Set;
 import java.util.stream.Collectors;
 
-public class hjBox {
+public class Box {
 
-    private static final boolean DEBUG = false;
+    private static final boolean DEBUG = Boolean.getBoolean(System.getProperty("DEBUG"));
 
     private static InetSocketAddress parseSocketAddress(String socketAddress)
     {
@@ -44,7 +44,7 @@ public class hjBox {
 
         SocketAddress inSocketAddress = parseSocketAddress(streamProperties.getProperty("remote"));
         Set<SocketAddress> outSocketAddresses = Arrays.stream(streamProperties.getProperty("localdelivery").split(","))
-                .map(hjBox::parseSocketAddress)
+                .map(Box::parseSocketAddress)
                 .collect(Collectors.toSet());
 
         broadcast(streamProperties, inSocketAddress, outSocketAddresses);

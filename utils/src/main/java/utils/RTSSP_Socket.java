@@ -15,17 +15,23 @@ import java.util.Properties;
 
 public class RTSSP_Socket implements Closeable {
 
+    private final int mode;
     private CryptoStuff.CryptoInstance cryptoInstance;
-    private final DatagramSocket socket;
+    private DatagramSocket socket;
     private Telemetry telemetry;
 
+    private RTSSP_Socket(int mode, Properties cryptoProperties) throws CryptoException {
+        this.mode = mode;
+        init(mode, cryptoProperties);
+    }
+
     public RTSSP_Socket(Properties cryptoProperties) throws SocketException, CryptoException {
-        init(Cipher.ENCRYPT_MODE, cryptoProperties);
+        this(Cipher.ENCRYPT_MODE, cryptoProperties);
         socket = new DatagramSocket();
     }
 
     public RTSSP_Socket(Properties cryptoProperties, SocketAddress bindaddr) throws SocketException, CryptoException {
-        init(Cipher.DECRYPT_MODE, cryptoProperties);
+        this(Cipher.DECRYPT_MODE, cryptoProperties);
         socket = new DatagramSocket(bindaddr);
     }
 

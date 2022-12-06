@@ -1,5 +1,6 @@
 package utils.crypto;
 
+import org.bouncycastle.crypto.macs.CMac;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import utils.XMLConfigReader;
 
@@ -34,7 +35,6 @@ public class CryptoStuff
          */
         public CryptoInstance(int mode, Properties cryptoProperties) throws CryptoException {
             this.mode = mode;
-
             try {
                 String ciphersuite = cryptoProperties.getProperty("ciphersuite");
 
