@@ -92,7 +92,7 @@ public final class StreamServer implements Runnable, StreamingServer {
 
 	private static final ConcurrentMap<SocketAddress, StreamServer> streamServers = new ConcurrentHashMap<>();
 
-	public static StreamServer getInstance(SocketAddress addr) {
+	public synchronized static StreamServer getInstance(SocketAddress addr) {
 		if (!streamServers.containsKey(addr))
 			streamServers.put(addr, new StreamServer(addr));
 
@@ -101,9 +101,15 @@ public final class StreamServer implements Runnable, StreamingServer {
 
 	private SocketAddress broadcastAddr;
 	private BlockingQueue<StreamInfo> streamQueue;
+	private boolean running;
 	public StreamServer(SocketAddress broadcastAddr) {
 		this.broadcastAddr = broadcastAddr;
 		this.streamQueue = new LinkedBlockingQueue<>();
+		running = false;
+	}
+
+	public boolean isRunning() {
+		return running;
 	}
 
 	/**
@@ -124,8 +130,9 @@ public final class StreamServer implements Runnable, StreamingServer {
 
 	@Override
 	public void run() {
-		// try to take an item from the queue for a limited amount of time, if unsuccessfull, terminate execution
+		running = true;
 
+		// try to take an item from the queue for a limited amount of time, if unsuccessfull, terminate execution
 		try {
 			StreamInfo streamInfo;
 			while ((streamInfo = streamQueue.poll(20, TimeUnit.SECONDS)) != null) {
@@ -136,6 +143,7 @@ public final class StreamServer implements Runnable, StreamingServer {
 		}
 
 		streamServers.remove(broadcastAddr);
+		running = false;
 	}
 
 	public static class Stream implements Runnable {

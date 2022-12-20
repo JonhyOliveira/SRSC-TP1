@@ -17,28 +17,4 @@
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
-    <dependencies>
-        <dependency>
-            <groupId>srsc.fct.unl.pt</groupId>
-            <artifactId>server</artifactId>
-            <version>1.0</version>
-        </dependency>
-        <dependency>
-            <groupId>srsc.fct.unl.pt</groupId>
-            <artifactId>box</artifactId>
-            <version>1.0</version>
-        </dependency>
-        <dependency>
-            <groupId>srsc.fct.unl.pt</groupId>
-            <artifactId>utils</artifactId>
-            <version>1.0</version>
-            <scope>compile</scope>
-        </dependency>
-        <dependency>
-            <groupId>srsc.fct.unl.pt</groupId>
-            <artifactId>testing</artifactId>
-            <version>1.0</version>
-        </dependency>
-    </dependencies>
-
 </project>
