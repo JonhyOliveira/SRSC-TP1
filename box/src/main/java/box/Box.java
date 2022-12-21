@@ -16,7 +16,7 @@ public class Box {
 
     private static final boolean DEBUG = Boolean.getBoolean(System.getProperty("DEBUG"));
 
-    private static InetSocketAddress parseSocketAddress(String socketAddress)
+    public static InetSocketAddress parseSocketAddress(String socketAddress)
     {
         String[] split = socketAddress.split(":");
         String host = split[0];
@@ -40,7 +40,7 @@ public class Box {
 
         Properties streamProperties = loadProperties();
 
-        streamProperties.stringPropertyNames().forEach(s -> { System.out.printf("%-20s -> %s\n", s, streamProperties.getProperty(s)); });
+        streamProperties.stringPropertyNames().forEach(s -> System.out.printf("%-20s -> %s\n", s, streamProperties.getProperty(s)));
 
         SocketAddress inSocketAddress = parseSocketAddress(streamProperties.getProperty("remote"));
         Set<SocketAddress> outSocketAddresses = Arrays.stream(streamProperties.getProperty("localdelivery").split(","))

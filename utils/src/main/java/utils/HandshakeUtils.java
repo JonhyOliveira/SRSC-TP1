@@ -241,7 +241,7 @@ public class HandshakeUtils {
      * @return extra data sent inside the handshake
      * @throws HandshakeException
      */
-    public static byte[] validateHandshake(byte[] message, Mac integrityCheck, Signature signAlgo, TrustAnchor anchor) throws HandshakeException {
+    public static byte[] validateHandshake(byte[] message, Mac integrityCheck, TrustAnchor anchor) throws HandshakeException {
         byte[] check = Arrays.copyOfRange(message, message.length - integrityCheck.getMacLength(), message.length),
                 remainder = Arrays.copyOfRange(message, 0, message.length - integrityCheck.getMacLength());
 
@@ -280,12 +280,16 @@ public class HandshakeUtils {
 
         // verify signature
         try {
+            Signature signAlgo = Signature.getInstance("SHA256with" + certChain[0].getPublicKey().getAlgorithm());
+
             signAlgo.initVerify(certChain[0].getPublicKey());
             signAlgo.update(Arrays.copyOfRange(remainder, 0, remainder.length - signLen - Short.BYTES));
             if (!signAlgo.verify(sign))
                 throw new HandshakeException("Signature check failed");
         } catch (SignatureException | InvalidKeyException e) {
             throw new HandshakeException("Error signing message", e);
+        } catch (NoSuchAlgorithmException e) {
+            throw new RuntimeException(e);
         }
 
         /* validate chain *

@@ -1,6 +1,8 @@
 package box;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import utils.CipherSuite;
+import utils.FileUtils;
 import utils.HandshakeException;
 import utils.HandshakeUtils;
 import utils.crypto.CryptoException;
@@ -9,6 +11,7 @@ import javax.crypto.KeyAgreement;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketAddress;
@@ -16,6 +19,8 @@ import java.nio.ByteBuffer;
 import java.security.*;
 import java.security.cert.*;
 import java.security.cert.Certificate;
+import java.security.spec.InvalidKeySpecException;
+import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
@@ -74,19 +79,25 @@ public class StreamRequester implements Closeable {
                     System.out.println("Invalid value.");
             }
 
-            InetSocketAddress streamTo = new InetSocketAddress(address.getAddress(), 9999);
+            InetSocketAddress streamTo = new InetSocketAddress(InetAddress.getLocalHost(), 9999);
 
             new Thread(() -> {
+
                 try {
-                    Box.broadcast(requester.getNegotiatedCryptoConfiguration(), streamTo, Set.of());
-                } catch (IOException e) {
-                    throw new RuntimeException(e);
-                } catch (CryptoException e) {
+                    Properties props = new Properties();
+                    props.load(FileUtils.streamFromResourceOrPath("config.properties"));
+
+                    Set<SocketAddress> addresses = Arrays.stream(props.getProperty("localdelivery").split(","))
+                            .map(Box::parseSocketAddress)
+                            .collect(Collectors.toSet());
+
+                    Box.broadcast(requester.getNegotiatedCryptoConfiguration(), streamTo, addresses);
+                } catch (IOException | CryptoException e) {
                     throw new RuntimeException(e);
                 }
             }); // TODO .start();
 
-            requester.requestStream(streams.get(choice), streamTo);
+            requester.requestStream(streams.get(choice));
 
 
         } catch (IOException | HandshakeException e) {
@@ -98,6 +109,7 @@ public class StreamRequester implements Closeable {
     private TrustAnchor trustAnchor;
     private List<String> availableStreams;
     private Socket socket;
+    private Properties negotiatedProperties;
 
     public StreamRequester(InetSocketAddress serverAddress, Properties cryptoProperties, KeyStore keyStore) throws IOException, HandshakeException {
 
@@ -135,12 +147,10 @@ public class StreamRequester implements Closeable {
         return new Properties(); // TODO
     }
 
-    public void requestStream(String streamName, InetSocketAddress address) throws IOException {
+    public void requestStream(String streamName) throws IOException {
         DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
 
         HandshakeUtils.sendBytes(outputStream, streamName.getBytes());
-        HandshakeUtils.sendBytes(outputStream, address.getAddress().getAddress());
-        outputStream.writeInt(address.getPort());
     }
 
     @Override
@@ -150,83 +160,96 @@ public class StreamRequester implements Closeable {
 
     private void performHandshake(Properties properties, KeyStore keyStore) throws IOException, HandshakeException {
 
-            DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-            DataInputStream inputStream = new DataInputStream(socket.getInputStream());
+        DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+        DataInputStream inputStream = new DataInputStream(socket.getInputStream());
 
-            //region Initialize parameters necessary for handshake
-            KeyPair keyAgreementPair;
-            KeyAgreement agreement;
+        //region Initialize parameters necessary for handshake
+        KeyPair keyAgreementPair;
+        KeyAgreement agreement;
 
 
-            try {
-                keyAgreementPair = generateKeyPair(properties.getProperty("KeyType"), properties.getProperty("KeyParams"));
-                agreement = getKeyAgreement(properties.getProperty("KeyType"));
-                agreement.init(keyAgreementPair.getPrivate());
-            } catch (NoSuchAlgorithmException | NoSuchProviderException | InvalidAlgorithmParameterException |
-                     InvalidKeyException e) {
-                throw new ExceptionInInitializerError(e);
+        try {
+            keyAgreementPair = generateKeyPair(properties.getProperty("KeyType"), properties.getProperty("KeyParams"));
+            agreement = getKeyAgreement(properties.getProperty("KeyType"));
+            agreement.init(keyAgreementPair.getPrivate());
+        } catch (NoSuchAlgorithmException | NoSuchProviderException | InvalidAlgorithmParameterException |
+                 InvalidKeyException e) {
+            throw new ExceptionInInitializerError(e);
+        }
+
+        Certificate cert1;
+        Signature mySignature;
+        Mac integrityCheck;
+
+        try {
+            integrityCheck = Mac.getInstance("HmacSHA512");
+            integrityCheck.init(new SecretKeySpec(properties.getProperty("MACKey").getBytes(), "HmacSHA256"));
+
+            Key k1 = keyStore.getKey("mykeys", properties.getProperty("KSPassword").toCharArray());
+
+            if (k1 instanceof PrivateKey) {
+                cert1 = keyStore.getCertificate("myKeys");
+                verifyCertificate((X509Certificate) cert1);
             }
+            else
+                throw new InvalidKeyException("Could not find private key.");
 
-            Certificate cert1;
-            Signature mySignature;
-            Mac integrityCheck;
+            mySignature = Signature.getInstance("SHA256with" + k1.getAlgorithm());
+            mySignature.initSign((PrivateKey) k1);
+        } catch (KeyStoreException | UnrecoverableKeyException | NoSuchAlgorithmException | CertificateException |
+                 InvalidKeyException e) {
+            throw new ExceptionInInitializerError(e);
+        }
 
-            try {
-                mySignature = Signature.getInstance("SHA256withDSA");
-                integrityCheck = Mac.getInstance("HmacSHA512");
-                integrityCheck.init(new SecretKeySpec(properties.getProperty("MACKey").getBytes(), "HmacSHA256"));
+        short cipherSuite = parseCipherSuites(properties.getProperty("CS"));
 
-                Key k1 = keyStore.getKey("box-dsa", properties.getProperty("KSPassword").toCharArray());
+        //endregion
 
-                if (k1 instanceof PrivateKey) {
-                    cert1 = keyStore.getCertificate("box-dsa");
-                    verifyCertificate((X509Certificate) cert1);
-                    mySignature.initSign((PrivateKey) k1);
-                }
-                else
-                    throw new InvalidKeyException("Could not find private key.");
+        //region First message of handshake
 
-            } catch (KeyStoreException | UnrecoverableKeyException | NoSuchAlgorithmException | CertificateException |
-                     InvalidKeyException e) {
-                throw new ExceptionInInitializerError(e);
-            }
+        byte[] contents = composeHandshake(cipherSuite, keyAgreementPair.getPublic(),
+                new Certificate[]{ cert1, trustAnchor.getTrustedCert() }, mySignature, integrityCheck);
 
-            short cipherSuite = parseCipherSuites(properties.getProperty("CS"));
+        outputStream.writeInt(contents.length);
+        outputStream.write(contents);
+        outputStream.flush();
 
-            //endregion
+        //endregion
 
-            //region First message of handshake
+        //region Receive server response
 
-            byte[] contents = composeHandshake(cipherSuite, keyAgreementPair.getPublic(),
-                    new Certificate[]{cert1}, mySignature, integrityCheck);
+        int messageLength = inputStream.readInt();
+        byte[] message = inputStream.readNBytes(messageLength);
 
-            outputStream.writeInt(contents.length);
-            outputStream.write(contents);
-            outputStream.flush();
+        ByteBuffer buffer = ByteBuffer.wrap(message);
+        short cipher = buffer.getShort();
 
-            //endregion
+        PublicKey serverPKey = null;
+        try {
+            short keyLength = buffer.getShort();
+            byte[] keyBytes = new byte[keyLength];
+            buffer.get(keyBytes, 0, keyLength);
 
-            //region Receive server response
+            X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
+            KeyFactory keyFactory = KeyFactory.getInstance("DH");
+            serverPKey = keyFactory.generatePublic(keySpec);
+            agreement.doPhase(serverPKey, true);
+        } catch (NoSuchAlgorithmException | InvalidKeySpecException | InvalidKeyException e) {
+            throw new HandshakeException(e);
+        }
 
-            int messageLength = inputStream.readInt();
-            byte[] message = inputStream.readNBytes(messageLength);
+        availableStreams = List.of(parseStringArray(validateHandshake(message, integrityCheck, trustAnchor)));
 
-            ByteBuffer buffer = ByteBuffer.wrap(message);
-            short cipher = buffer.getShort();
+        int negotiatedCipherIndex = Short.SIZE;
+        while (negotiatedCipherIndex > -1 && (cipher >> negotiatedCipherIndex) == 0) {
+            negotiatedCipherIndex--;
+        }
+        System.out.printf("\tNegotiated cipher: 0b%s (%s)\n", Integer.toBinaryString(cipher), negotiatedCipherIndex);
 
-            try {
-                availableStreams = List.of(parseStringArray(validateHandshake(message, integrityCheck, Signature.getInstance("SHA256withECDSA"), trustAnchor)));
-            } catch (NoSuchAlgorithmException e) {
-                throw new RuntimeException(e);
-            }
+        System.out.printf("\tNegotiated secret: %30.30s ...\n", Arrays.toString(agreement.generateSecret()));
 
-            int negotiatedCipherIndex = Short.SIZE;
-            while (negotiatedCipherIndex > -1 && (cipher >> negotiatedCipherIndex) == 0) {
-                negotiatedCipherIndex--;
-            }
-            logger.fine(String.format("Negotiated cipher: 0b%s (%s)\n", Integer.toBinaryString(cipher), negotiatedCipherIndex));
+        //endregion
 
-            //endregion
 
     }
 
