@@ -2,11 +2,13 @@ package server;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import utils.HandshakeException;
+import utils.HandshakeUtils;
 
 import javax.crypto.KeyAgreement;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -18,14 +20,13 @@ import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Properties;
 import java.util.concurrent.LinkedBlockingQueue;
-import java.util.concurrent.SynchronousQueue;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static utils.crypto.CryptoUtil.*;
+import static utils.HandshakeUtils.*;
 
 public class StreamRequestsServer {
 
@@ -35,44 +36,54 @@ public class StreamRequestsServer {
 
     public static void main(String[] args) throws IOException, KeyStoreException, CertificateException, NoSuchAlgorithmException {
 
-        System.out.println("Provided ciphers: " + (args.length > 0 ? Arrays.toString(args[0].split(",")) : Arrays.toString(new String[0])));
+        if (args.length < 2) {
+            System.err.println("Incorrect arguments, try something like:\n" +
+                    "<films directory> <films extension regex> [cipher_code1,...]");
+            return;
+        }
+
+        System.out.println("Provided ciphers: " + (args.length >= 3 ? Arrays.toString(args[2].split(",")) : Arrays.toString(new String[0])));
 
         Properties properties = new Properties();
         properties.load(StreamRequestsServer.class.getClassLoader().getResourceAsStream("request.properties"));
-        if (args.length >= 2) {
+        if (args.length >= 3) {
             properties.setProperty("CS", // join default request property with the provided
                     Stream.concat(Arrays.stream(properties.getProperty("CS", "").split(",")),
-                            Arrays.stream(args[1].split(","))).sorted().collect(Collectors.joining(",")));
+                            Arrays.stream(args[2].split(","))).sorted().collect(Collectors.joining(",")));
         }
 
         KeyStore keyStore = KeyStore.getInstance(KeyStore.getDefaultType());
         keyStore.load(StreamRequestsServer.class.getClassLoader().getResourceAsStream("server.jks"),
                 properties.getProperty("KSPassword").toCharArray());
 
-        new StreamRequestsServer(properties, keyStore);
+        new StreamRequestsServer(properties, keyStore, new MovieFileStreamer(new File(args[0]), args[1]));
     }
 
     private static final int DEFAULT_PORT = 4242, DEFAULT_BACKLOG = 10;
 
-    public StreamRequestsServer(Properties properties, KeyStore trustStore) {
-        this(DEFAULT_PORT, DEFAULT_BACKLOG, properties, trustStore);
+    public StreamRequestsServer(Properties properties, KeyStore trustStore, StreamsManager manager) {
+        this(DEFAULT_PORT, DEFAULT_BACKLOG, properties, trustStore, manager);
     }
 
-    public StreamRequestsServer(int servePort, Properties properties, KeyStore trustStore) {
-        this(servePort, DEFAULT_BACKLOG, properties, trustStore);
+    public StreamRequestsServer(int servePort, Properties properties, KeyStore trustStore, StreamsManager manager) {
+        this(servePort, DEFAULT_BACKLOG, properties, trustStore, manager);
     }
 
     private ThreadPoolExecutor threadPoolExecutor;
     private AtomicBoolean running;
     private Properties cryptoProperties;
     private KeyStore trustStore;
+    private TrustAnchor trustAnchor;
+    private StreamsManager manager;
 
-    public StreamRequestsServer(int servePort, int backlog, Properties properties, KeyStore trustStore) {
+    public StreamRequestsServer(int servePort, int backlog, Properties properties, KeyStore trustStore,
+                                StreamsManager manager) {
         threadPoolExecutor = new ThreadPoolExecutor(backlog, backlog, 0, TimeUnit.DAYS,
                 new LinkedBlockingQueue<>());
         running = new AtomicBoolean(true);
         cryptoProperties = properties;
         this.trustStore = trustStore;
+        this.manager = manager;
 
         System.out.println("Connection crypto properties:");
         cryptoProperties.forEach((o, o2) -> System.out.printf("%30.30s -> %30.30s\n", o, o2.toString()));
@@ -84,6 +95,16 @@ public class StreamRequestsServer {
         } catch (KeyStoreException e) {
             throw new RuntimeException(e);
         }
+
+        // load CA certificate
+        try {
+            trustAnchor = new TrustAnchor((X509Certificate) trustStore.getCertificate("ca"), null);
+        } catch (KeyStoreException e) {
+            throw new RuntimeException(e);
+        }
+
+        System.out.println("Serving streams: " + manager.getAvailableStreams());
+
         try (ServerSocket server = new ServerSocket(servePort, backlog)) {
             System.out.printf("Listening @ %s:%s\n", server.getInetAddress().getHostAddress(), server.getLocalPort());
             while (running.get())
@@ -126,11 +147,11 @@ public class StreamRequestsServer {
                     throw new ExceptionInInitializerError(e);
                 }
 
-                Mac clientIntegrityCheck;
+                Mac integrityCheck;
 
                 try {
-                    clientIntegrityCheck = Mac.getInstance("HmacSHA512");
-                    clientIntegrityCheck.init(new SecretKeySpec(server.cryptoProperties.getProperty("MACKey").getBytes(), "HmacSHA256"));
+                    integrityCheck = Mac.getInstance("HmacSHA512");
+                    integrityCheck.init(new SecretKeySpec(server.cryptoProperties.getProperty("MACKey").getBytes(), "HmacSHA256"));
                 } catch (NoSuchAlgorithmException | InvalidKeyException e) {
                     throw new ExceptionInInitializerError(e);
                 }
@@ -140,67 +161,25 @@ public class StreamRequestsServer {
                 //region Parse and Verify Handshake message
                 int messageLength = inputStream.readInt();
                 byte[] message = inputStream.readNBytes(messageLength);
-                short clientCiphers = 0;
+
+                ByteBuffer buffer = ByteBuffer.wrap(message);
+                short clientCiphers = buffer.getShort();
 
                 try {
-                    // first, check MAC
-                    byte[] check = Arrays.copyOfRange(message, message.length - clientIntegrityCheck.getMacLength(), message.length),
-                            remainder = Arrays.copyOfRange(message, 0, message.length - clientIntegrityCheck.getMacLength());
-
-                    if (!Arrays.equals(check, clientIntegrityCheck.doFinal(remainder)))
-                        throw new HandshakeException("Corrupted message failed integrity check");
-
-                    System.out.println("Integrity: OK");
-
-                    // second, check signature
-                    ByteBuffer buf = ByteBuffer.wrap(remainder);
-                    int len = buf.getShort(remainder.length - Short.BYTES); // signature length
-                    byte[] sign = Arrays.copyOfRange(remainder,
-                            remainder.length - Short.BYTES - len, remainder.length - Short.BYTES);
-
-                    //   certificates and keys
-                    clientCiphers = buf.getShort();
-                    len = buf.getShort(); // key agreement public key
-                    byte[] bytes = new byte[len];
-                    buf.get(bytes, 0, len);
-                    PublicKey other = publicKeyParser(bytes, server.cryptoProperties.getProperty("KeyType"));
-                    len = buf.getShort(); // certificate chain size
-
-                    X509Certificate[] clientCertChain = new X509Certificate[len];
-
-                    for (int i = 0; i < len; i++) {
-                        int certLen = buf.getShort();
-                        bytes = new byte[certLen];
-                        buf.get(bytes, 0, certLen);
-                        clientCertChain[i] = certificateParser(bytes);
-                        verifyCertificate(clientCertChain[i]);
-                    }
-
-                    Signature signature = Signature.getInstance("SHA256withDSA");
-                    signature.initVerify(clientCertChain[0]);
-                    signature.update(Arrays.copyOfRange(remainder, 0, remainder.length - Short.BYTES - sign.length));
-                    if (!signature.verify(sign))
-                        throw new HandshakeException("Message signature is invalid");
-                } catch (NoSuchAlgorithmException | SignatureException | InvalidKeyException | CertificateException e) {
+                    validateHandshake(message, integrityCheck, Signature.getInstance("SHA256withDSA"), server.trustAnchor);
+                } catch (NoSuchAlgorithmException e) {
                     throw new RuntimeException(e);
                 }
-                System.out.println("Signature: OK");
 
-                // TODO load CA certificate and verify if chain is trustable
-                // validateChain(new TrustAnchor(CACert, null), certChain);
-                System.out.println("Trustable.");
 
                 //endregion
 
                 //region Load parameters necessary for response
                 Certificate cert;
                 Signature signature;
-                Mac integrityCheck;
 
                 try {
-                    signature = Signature.getInstance("SHA256withDSA");
-                    integrityCheck = Mac.getInstance("HmacSHA512");
-                    integrityCheck.init(new SecretKeySpec(server.cryptoProperties.getProperty("MACKey").getBytes(), "HmacSHA256"));
+                    signature = Signature.getInstance("SHA256withECDSA");
 
                     Key k1 = server.trustStore.getKey("serv-ec", server.cryptoProperties.getProperty("KSPassword").toCharArray());
 
@@ -220,56 +199,38 @@ public class StreamRequestsServer {
                 { // calculate prefered cipher suite
                     short supportedCipherSuites = parseCipherSuites(server.cryptoProperties.getProperty("CS"));
 
-                    int i = Short.SIZE;
-                    while (i > 0 && (supportedCipherSuites & clientCiphers) >>i != 0)
-                        i--; // index of first match left to right
+                    int i;
+                    for (i = Short.SIZE; i > 0; i--)
+                        if ((supportedCipherSuites & clientCiphers) >>i != 0)
+                            break; // index of first match left to right
 
                     preferedCipherSuite = (short) (1 << (i));
+
+                    System.out.printf("\tNegotiated cipher=%s (%s)\n", Integer.toBinaryString(preferedCipherSuite), preferedCipherSuite);
                 }
 
                 //endregion
 
                 //region Send Handshake Message
-                ByteArrayOutputStream baos = new ByteArrayOutputStream();
-                {
-                    DataOutputStream outStream = new DataOutputStream(baos);
-                    try {
 
-                        outStream.writeShort(preferedCipherSuite);
-                        // send my key exchange
-                        outStream.writeShort((short) keyAgreementPair.getPublic().getEncoded().length);
-                        outStream.write(keyAgreementPair.getPublic().getEncoded());
-                        Certificate[] certChain = new Certificate[]{cert};
-                        // send certificate chain
-                        outStream.writeShort((short) certChain.length);
-                        for (Certificate certificate : certChain) {
-                            byte[] encoded = certificate.getEncoded();
-                            outStream.writeShort((short) encoded.length);
-                            outStream.write(encoded);
-                        }
-                        outStream.flush();
-
-                        signature.update(baos.toByteArray());
-                        byte[] sign = signature.sign();
-                        outStream.write(sign);
-                        outStream.writeShort(sign.length);
-                        outStream.flush();
-
-                        integrityCheck.update(baos.toByteArray());
-                        outStream.write(integrityCheck.doFinal());
-
-                    } catch (SignatureException | CertificateEncodingException e) {
-                        throw new HandshakeException(e);
-                    }
-                    outStream.flush();
-                }
-                byte[] contents = baos.toByteArray();
+                byte[] contents = composeHandshake(preferedCipherSuite, keyAgreementPair.getPublic(),
+                        new Certificate[]{ cert }, signature, integrityCheck, String.join("\0", server.manager.getAvailableStreams()).getBytes());
 
                 outputStream.writeInt(contents.length);
                 outputStream.write(contents);
                 outputStream.flush();
 
                 //endregion
+
+                //region Receive Control Message
+                String choice = new String(HandshakeUtils.receiveBytes(inputStream));
+                InetSocketAddress streamTo = new InetSocketAddress(InetAddress.getByAddress(HandshakeUtils.receiveBytes(inputStream)), inputStream.readInt());
+
+                System.out.printf("\tChoice=%s\n\tStream to Address=%s\n", choice, streamTo);
+
+                //endregion
+
+                // TODO setup crypto properties and start stream
 
             } catch (IOException | HandshakeException  e) {
                 throw new RuntimeException(e);
