@@ -1,29 +1,23 @@
 package server;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import rtssp.Handshake;
 import utils.HandshakeException;
-import utils.HandshakeUtils;
-import utils.crypto.Ciphersuites;
+import utils.LengthPreappendInputStream;
+import utils.LengthPreappendOutputStream;
 import utils.crypto.CryptoException;
 
-import javax.crypto.KeyAgreement;
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
-import java.io.File;
-import java.io.IOException;
+import java.io.*;
 import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.ByteBuffer;
-import java.security.*;
-import java.security.cert.Certificate;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.Security;
 import java.security.cert.CertificateException;
 import java.security.cert.TrustAnchor;
 import java.security.cert.X509Certificate;
-import java.security.spec.InvalidKeySpecException;
-import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
 import java.util.Enumeration;
 import java.util.Properties;
@@ -34,7 +28,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static utils.HandshakeUtils.*;
+import static utils.StreamUtils.receiveBytes;
 
 public class StreamRequestsServer {
 
@@ -137,143 +131,33 @@ public class StreamRequestsServer {
             System.out.printf("Connection from %s.\n", clientSocket.getInetAddress());
 
             try (Socket socket = this.clientSocket) {
-                DataInputStream inputStream = new DataInputStream(socket.getInputStream());
-                DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
+                InputStream inputStream = new LengthPreappendInputStream(socket.getInputStream());
+                OutputStream outputStream = new LengthPreappendOutputStream(socket.getOutputStream());
 
-                //region Initialize parameters necessary to handle request
+                Handshake handshake = new Handshake(server.cryptoProperties, server.trustStore, 2);
 
-                KeyPair keyAgreementPair;
-                KeyAgreement agreement;
-
-                try {
-                    keyAgreementPair = generateKeyPair(server.cryptoProperties.getProperty("KeyType"),
-                            server.cryptoProperties.getProperty("KeyParams"));
-                    agreement = getKeyAgreement(server.cryptoProperties.getProperty("KeyType"));
-                    agreement.init(keyAgreementPair.getPrivate());
-                } catch (NoSuchAlgorithmException | NoSuchProviderException | InvalidAlgorithmParameterException |
-                         InvalidKeyException e) {
-                    throw new ExceptionInInitializerError(e);
-                }
-
-                Mac integrityCheck;
+                handshake.receiveMessage(inputStream.readAllBytes());
+                handshake.sendMessage(outputStream, String.join("\0", server.manager.getAvailableStreams()).getBytes());
 
                 try {
-                    integrityCheck = Mac.getInstance("HmacSHA512");
-                    integrityCheck.init(new SecretKeySpec(server.cryptoProperties.getProperty("MACKey").getBytes(), "HmacSHA256"));
-                } catch (NoSuchAlgorithmException | InvalidKeyException e) {
-                    throw new ExceptionInInitializerError(e);
-                }
-
-                //endregion
-
-                //region Parse and Verify Handshake message
-                int messageLength = inputStream.readInt();
-                byte[] message = inputStream.readNBytes(messageLength);
-
-                ByteBuffer buffer = ByteBuffer.wrap(message);
-                short clientCiphers = buffer.getShort();
-
-                PublicKey clientPKey = null;
-                try {
-                    short keyLength = buffer.getShort();
-                    byte[] keyBytes = new byte[keyLength];
-                    buffer.get(keyBytes, 0, keyLength);
-
-                    X509EncodedKeySpec keySpec = new X509EncodedKeySpec(keyBytes);
-                    KeyFactory keyFactory = KeyFactory.getInstance("DH");
-                    clientPKey = keyFactory.generatePublic(keySpec);
-                    agreement.doPhase(clientPKey, true);
-                } catch (NoSuchAlgorithmException | InvalidKeySpecException | InvalidKeyException e) {
+                    handshake.establishSecrets();
+                } catch (CryptoException e) {
                     throw new HandshakeException(e);
                 }
 
-                validateHandshake(message, integrityCheck, server.trustAnchor);
+                Properties negotiatedProperties = handshake.getSharedSecrets();
 
-                //endregion
-
-                //region Load parameters necessary for response
-                Certificate cert;
-                Signature signature;
-
-                try {
-
-                    Key k1 = server.trustStore.getKey("myKeys", server.cryptoProperties.getProperty("KSPassword").toCharArray());
-
-                    if (k1 instanceof PrivateKey) {
-                        cert = server.trustStore.getCertificate("myCert");
-                        verifyCertificate((X509Certificate) cert);
-                    }
-                    else
-                        throw new InvalidKeyException("Could not find private key.");
-
-                    signature = Signature.getInstance("SHA256with" + k1.getAlgorithm());
-                    signature.initSign((PrivateKey) k1);
-
-                } catch (UnrecoverableKeyException | CertificateException | NoSuchAlgorithmException | KeyStoreException |
-                         InvalidKeyException e) {
-                    throw new ExceptionInInitializerError(e);
-                }
-
-                short preferedCipherSuite;
-                { // calculate prefered cipher suite
-                    short supportedCipherSuites = parseCipherSuites(server.cryptoProperties.getProperty("CS"));
-
-                    int i;
-                    for (i = Short.SIZE; i > 0; i--)
-                        if ((supportedCipherSuites & clientCiphers) >>i != 0)
-                            break; // index of first match left to right
-
-                    preferedCipherSuite = (short) (1 << (i));
-
-                    if (i == 0)
-                        throw new HandshakeException("Could not find common grounds for cipher suite.");
-
-                }
-
-                int negotiatedCipherIndex = Short.SIZE;
-                while (negotiatedCipherIndex > -1 && (preferedCipherSuite >> negotiatedCipherIndex) == 0) {
-                    negotiatedCipherIndex--;
-                }
-
-                System.out.printf("\tNegotiated cipher: 0b%s (%s)\n", Integer.toBinaryString(preferedCipherSuite), negotiatedCipherIndex);
-
-                byte[] secret = agreement.generateSecret();
-
-                System.out.printf("\tNegotiated secret: %30.30s ...\n", Arrays.toString(secret));
-
-                Properties cryptoProperties = null;
-                try {
-                    cryptoProperties = Ciphersuites.values()[negotiatedCipherIndex].generateCryptoProperties(secret);
-                } catch (CryptoException e) {
-                    throw new RuntimeException(e);
-                }
                 System.out.println("\tNegotiated properties:");
-                cryptoProperties.forEach((o, o2) -> System.out.printf("\t- %-15.15s -> %30.30s\n", o, o2.toString()));
+                negotiatedProperties.forEach((o, o2) -> System.out.printf("\t- %-15.15s -> %30.30s\n", o, o2.toString()));
 
-                //endregion
-
-                //region Send Handshake Message
-
-                byte[] contents = composeHandshake(preferedCipherSuite, keyAgreementPair.getPublic(),
-                        new Certificate[]{ cert, server.trustAnchor.getTrustedCert() }, signature, integrityCheck,
-                        String.join("\0", server.manager.getAvailableStreams()).getBytes());
-
-                outputStream.writeInt(contents.length);
-                outputStream.write(contents);
-                outputStream.flush();
-
-                //endregion
-
-                //region Receive Control Message
-                String choice = new String(HandshakeUtils.receiveBytes(inputStream));
+                //Receive Control Message
+                String choice = new String(receiveBytes(inputStream));
 
                 System.out.printf("\tChoice: %s\n", choice);
 
-                //endregion
-
                 StreamServer streamer = StreamServer.getInstance(new InetSocketAddress(socket.getInetAddress(), 9999));
 
-                streamer.stream(new StreamInfo(choice, new DataInputStream(server.manager.getStream(choice)), cryptoProperties));
+                streamer.stream(new StreamInfo(choice, new DataInputStream(server.manager.getStream(choice)), negotiatedProperties));
                 if (!streamer.isRunning())
                     new Thread(streamer).start();
 

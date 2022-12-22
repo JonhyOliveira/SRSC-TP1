@@ -62,7 +62,6 @@ public class CryptoStuff
 
                 if (cryptoProperties.containsKey("key")) {
                     secretKey = new SecretKeySpec(parseStringBytes(cryptoProperties.getProperty("key")), ciphersuite.split("/")[0]);
-                    System.out.println(secretKey);
                 }
                 else if (cryptoProperties.containsKey("password"))
                     secretKey = SecretKeyFactory.getInstance(cryptoProperties.getProperty("ciphersuite"))
