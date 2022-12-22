@@ -148,7 +148,7 @@ public final class StreamServer implements Runnable, StreamingServer {
 
 	public static class Stream implements Runnable {
 
-		private final boolean DEBUG = Boolean.getBoolean(System.getProperty("DEBUG"));
+		private final boolean DEBUG = true; // Boolean.getBoolean(System.getProperty("DEBUG"));
 
 		private final Telemetry results;
 		private final String streamID;
@@ -169,6 +169,7 @@ public final class StreamServer implements Runnable, StreamingServer {
 		{
 			this.streamID = streamID;
 			this.stream = stream;
+			System.out.println(stream);
 			this.broadcastAddr = broadcast;
 			this.broadcastCryptoProps = broadcastCryptoProps;
 
@@ -204,7 +205,7 @@ public final class StreamServer implements Runnable, StreamingServer {
 					// compose & send packet
 					s.send(RTSSP_Packet.compose(RTSSP_Packet.Type.DATA, stream.readNBytes(frameSize)), broadcastAddr);
 					if (DEBUG)
-						System.out.printf("\rStream '%s': %10d seconds elapsed, %10.3f kB received, %7.3f kBps", streamID, results.elapsedTime() / 1000, results.rawSize(), results.throughput());
+						System.out.printf("\rStream '%s': %10d seconds elapsed, %10.3f kB sent, %7.3f kBps", streamID, results.elapsedTime() / 1000, results.rawSize(), results.throughput());
 					// comment this for final experiment al observations
 				}
 

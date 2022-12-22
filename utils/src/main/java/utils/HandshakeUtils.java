@@ -127,9 +127,11 @@ public class HandshakeUtils {
         if (ciphers != null)
             for (String cs : ciphers.split(","))
             {
-                int val = Integer.parseInt(cs);
-                if (val < 6 && val > 0)
-                    cipherSuites += 1<<(val - 1); // set bit (if val = 1, sets 1st bit)
+                if (!cs.isEmpty()) {
+                    int val = Integer.parseInt(cs);
+                    if (val < 6 && val > 0)
+                        cipherSuites += 1 << (val - 1); // set bit (if val = 1, sets 1st bit)
+                }
             }
 
         return cipherSuites;

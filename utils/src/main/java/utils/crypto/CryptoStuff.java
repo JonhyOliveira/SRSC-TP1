@@ -1,17 +1,19 @@
 package utils.crypto;
 
-import org.bouncycastle.crypto.macs.CMac;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import utils.XMLConfigReader;
 
 import javax.crypto.*;
-import javax.crypto.spec.*;
+import javax.crypto.spec.IvParameterSpec;
+import javax.crypto.spec.PBEKeySpec;
+import javax.crypto.spec.PBEParameterSpec;
+import javax.crypto.spec.SecretKeySpec;
 import java.io.*;
 import java.security.*;
 import java.security.spec.AlgorithmParameterSpec;
 import java.security.spec.InvalidKeySpecException;
-import java.security.spec.InvalidParameterSpecException;
-import java.util.*;
+import java.util.HexFormat;
+import java.util.Properties;
 
 public class CryptoStuff
 {
@@ -36,6 +38,7 @@ public class CryptoStuff
         public CryptoInstance(int mode, Properties cryptoProperties) throws CryptoException {
             this.mode = mode;
             try {
+
                 String ciphersuite = cryptoProperties.getProperty("ciphersuite");
 
                 if (cryptoProperties.containsKey("integrity")) {
@@ -57,8 +60,10 @@ public class CryptoStuff
                             100, keyParameterSpec);
 
 
-                if (cryptoProperties.containsKey("key"))
+                if (cryptoProperties.containsKey("key")) {
                     secretKey = new SecretKeySpec(parseStringBytes(cryptoProperties.getProperty("key")), ciphersuite.split("/")[0]);
+                    System.out.println(secretKey);
+                }
                 else if (cryptoProperties.containsKey("password"))
                     secretKey = SecretKeyFactory.getInstance(cryptoProperties.getProperty("ciphersuite"))
                             .generateSecret(new PBEKeySpec(cryptoProperties.getProperty("password").toCharArray()));

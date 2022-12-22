@@ -3,6 +3,8 @@ package server;
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import utils.HandshakeException;
 import utils.HandshakeUtils;
+import utils.crypto.Ciphersuites;
+import utils.crypto.CryptoException;
 
 import javax.crypto.KeyAgreement;
 import javax.crypto.Mac;
@@ -11,6 +13,7 @@ import java.io.DataInputStream;
 import java.io.DataOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.net.InetSocketAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.ByteBuffer;
@@ -222,12 +225,30 @@ public class StreamRequestsServer {
 
                     preferedCipherSuite = (short) (1 << (i));
 
-                    if ((preferedCipherSuite & Short.MAX_VALUE) == 0)
+                    if (i == 0)
                         throw new HandshakeException("Could not find common grounds for cipher suite.");
 
-                    System.out.printf("\tNegotiated cipher: 0b%s (%s)\n", Integer.toBinaryString(preferedCipherSuite), preferedCipherSuite);
                 }
-                System.out.printf("\tNegotiated secret: %30.30s ...\n", Arrays.toString(agreement.generateSecret()));
+
+                int negotiatedCipherIndex = Short.SIZE;
+                while (negotiatedCipherIndex > -1 && (preferedCipherSuite >> negotiatedCipherIndex) == 0) {
+                    negotiatedCipherIndex--;
+                }
+
+                System.out.printf("\tNegotiated cipher: 0b%s (%s)\n", Integer.toBinaryString(preferedCipherSuite), negotiatedCipherIndex);
+
+                byte[] secret = agreement.generateSecret();
+
+                System.out.printf("\tNegotiated secret: %30.30s ...\n", Arrays.toString(secret));
+
+                Properties cryptoProperties = null;
+                try {
+                    cryptoProperties = Ciphersuites.values()[negotiatedCipherIndex].generateCryptoProperties(secret);
+                } catch (CryptoException e) {
+                    throw new RuntimeException(e);
+                }
+                System.out.println("\tNegotiated properties:");
+                cryptoProperties.forEach((o, o2) -> System.out.printf("\t- %-15.15s -> %30.30s\n", o, o2.toString()));
 
                 //endregion
 
@@ -250,13 +271,11 @@ public class StreamRequestsServer {
 
                 //endregion
 
-                int negotiatedCipherIndex = Short.SIZE;
-                while (negotiatedCipherIndex > -1 && (preferedCipherSuite >> negotiatedCipherIndex) == 0) {
-                    negotiatedCipherIndex--;
-                }
+                StreamServer streamer = StreamServer.getInstance(new InetSocketAddress(socket.getInetAddress(), 9999));
 
-
-                // TODO setup crypto properties and start stream
+                streamer.stream(new StreamInfo(choice, new DataInputStream(server.manager.getStream(choice)), cryptoProperties));
+                if (!streamer.isRunning())
+                    new Thread(streamer).start();
 
             } catch (IOException | HandshakeException  e) {
                 throw new RuntimeException(e);

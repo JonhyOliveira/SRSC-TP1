@@ -1,24 +1,29 @@
 package box;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
-import utils.CipherSuite;
 import utils.FileUtils;
 import utils.HandshakeException;
 import utils.HandshakeUtils;
+import utils.crypto.Ciphersuites;
 import utils.crypto.CryptoException;
 
 import javax.crypto.KeyAgreement;
 import javax.crypto.Mac;
 import javax.crypto.spec.SecretKeySpec;
-import java.io.*;
+import java.io.Closeable;
+import java.io.DataInputStream;
+import java.io.DataOutputStream;
+import java.io.IOException;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.security.*;
-import java.security.cert.*;
 import java.security.cert.Certificate;
+import java.security.cert.CertificateException;
+import java.security.cert.TrustAnchor;
+import java.security.cert.X509Certificate;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.*;
@@ -79,23 +84,16 @@ public class StreamRequester implements Closeable {
                     System.out.println("Invalid value.");
             }
 
-            InetSocketAddress streamTo = new InetSocketAddress(InetAddress.getLocalHost(), 9999);
+            InetSocketAddress streamTo = new InetSocketAddress("127.0.0.1", 9999);
 
             new Thread(() -> {
-
                 try {
-                    Properties props = new Properties();
-                    props.load(FileUtils.streamFromResourceOrPath("config.properties"));
-
-                    Set<SocketAddress> addresses = Arrays.stream(props.getProperty("localdelivery").split(","))
-                            .map(Box::parseSocketAddress)
-                            .collect(Collectors.toSet());
-
+                    Set<SocketAddress> addresses = Set.of(new InetSocketAddress("224.7.7.7", 7777));
                     Box.broadcast(requester.getNegotiatedCryptoConfiguration(), streamTo, addresses);
                 } catch (IOException | CryptoException e) {
                     throw new RuntimeException(e);
                 }
-            }); // TODO .start();
+            }).start();
 
             requester.requestStream(streams.get(choice));
 
@@ -144,7 +142,7 @@ public class StreamRequester implements Closeable {
     }
 
     public Properties getNegotiatedCryptoConfiguration() {
-        return new Properties(); // TODO
+        return negotiatedProperties;
     }
 
     public void requestStream(String streamName) throws IOException {
@@ -224,6 +222,9 @@ public class StreamRequester implements Closeable {
         ByteBuffer buffer = ByteBuffer.wrap(message);
         short cipher = buffer.getShort();
 
+        if (cipher == 0)
+            throw new HandshakeException("Could not find common grounds for cipher suite.");
+
         PublicKey serverPKey = null;
         try {
             short keyLength = buffer.getShort();
@@ -246,7 +247,17 @@ public class StreamRequester implements Closeable {
         }
         System.out.printf("\tNegotiated cipher: 0b%s (%s)\n", Integer.toBinaryString(cipher), negotiatedCipherIndex);
 
-        System.out.printf("\tNegotiated secret: %30.30s ...\n", Arrays.toString(agreement.generateSecret()));
+        byte[] secret = agreement.generateSecret();
+
+        System.out.printf("\tNegotiated secret: %30.30s ...\n", Arrays.toString(secret));
+
+        try {
+            negotiatedProperties = Ciphersuites.values()[negotiatedCipherIndex].generateCryptoProperties(secret);
+        } catch (CryptoException e) {
+            throw new RuntimeException(e);
+        }
+        System.out.println("\tNegotiated properties:");
+        negotiatedProperties.forEach((o, o2) -> System.out.printf("\t- %-15.15s -> %30.30s\n", o, o2.toString()));
 
         //endregion
 

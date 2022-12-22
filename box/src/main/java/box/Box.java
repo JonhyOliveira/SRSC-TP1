@@ -14,7 +14,7 @@ import java.util.stream.Collectors;
 
 public class Box {
 
-    private static final boolean DEBUG = Boolean.getBoolean(System.getProperty("DEBUG"));
+    private static final boolean DEBUG = true; // Boolean.getBoolean(System.getProperty("DEBUG"));
 
     public static InetSocketAddress parseSocketAddress(String socketAddress)
     {

@@ -11,7 +11,7 @@ public final class StreamInfo {
     public StreamInfo(String streamID, DataInputStream stream, Properties streamCryptoProps) {
         this.streamID = streamID;
         this.streamData = stream;
-        this.cryptoProperties = new Properties(streamCryptoProps);
+        this.cryptoProperties = streamCryptoProps;
     }
 
     public String getStreamID() {

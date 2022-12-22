@@ -16,11 +16,12 @@ public class MovieFileStreamer implements StreamsManager {
 
         directory = movieDirectory;
         fileExtension = extension;
+        System.out.println(fileExtension);
     }
 
     @Override
     public List<String> getAvailableStreams() {
-        return Arrays.stream(directory.listFiles((dir, name) -> name.matches("^[0-9a-zA-Z-_]+."+ fileExtension +"$")))
+        return Arrays.stream(directory.listFiles((dir, name) -> name.matches("^[0-9a-zA-Z-_]+\\."+ fileExtension +"$")))
                 .map(File::getName)
                 .map(s -> s.split("\\.")[0])
                 .toList();
@@ -29,8 +30,10 @@ public class MovieFileStreamer implements StreamsManager {
     @Override
     public InputStream getStream(String streamName) {
         try {
-            return new FileInputStream(new File(directory, "%s.film".formatted(streamName)));
+            File f = new File(directory, "%s.%s".formatted(streamName, fileExtension));
+            return new FileInputStream(f);
         } catch (FileNotFoundException e) {
+            System.err.println("File not found.");
             return null;
         }
     }
