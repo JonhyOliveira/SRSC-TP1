@@ -4,12 +4,14 @@ import java.io.DataOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 
-public class LengthPreappendOutputStream extends OutputStream {
+public class LengthPreappendOutputStream<lT> extends OutputStream {
 
     private DataOutputStream outputStream;
+    private Class<lT> type;
 
-    public LengthPreappendOutputStream(OutputStream outputStream) {
+    public LengthPreappendOutputStream(OutputStream outputStream, Class<lT> lengthType) {
         this.outputStream = new DataOutputStream(outputStream);
+        type = lengthType;
     }
 
     @Override
@@ -18,14 +20,14 @@ public class LengthPreappendOutputStream extends OutputStream {
     }
 
     @Override
-    public void write(byte[] b) throws IOException {
-        this.outputStream.writeInt(b.length);
-        super.write(b);
-    }
-
-    @Override
     public void write(byte[] b, int off, int len) throws IOException {
-        this.outputStream.writeInt(len);
+        if (type.equals(Integer.class))
+            this.outputStream.writeInt(len);
+        else if (type.equals(Short.class))
+            this.outputStream.writeShort(len);
+        else if (type.equals(Byte.class))
+            this.outputStream.write(len);
+
         super.write(b, off, len);
     }
 }

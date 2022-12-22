@@ -28,8 +28,6 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
-import static utils.StreamUtils.receiveBytes;
-
 public class StreamRequestsServer {
 
     static {
@@ -131,8 +129,8 @@ public class StreamRequestsServer {
             System.out.printf("Connection from %s.\n", clientSocket.getInetAddress());
 
             try (Socket socket = this.clientSocket) {
-                InputStream inputStream = new LengthPreappendInputStream(socket.getInputStream());
-                OutputStream outputStream = new LengthPreappendOutputStream(socket.getOutputStream());
+                InputStream inputStream = new LengthPreappendInputStream<>(socket.getInputStream(), Integer.class);
+                OutputStream outputStream = new LengthPreappendOutputStream<>(socket.getOutputStream(), Integer.class);
 
                 Handshake handshake = new Handshake(server.cryptoProperties, server.trustStore, 2);
 
@@ -151,7 +149,7 @@ public class StreamRequestsServer {
                 negotiatedProperties.forEach((o, o2) -> System.out.printf("\t- %-15.15s -> %30.30s\n", o, o2.toString()));
 
                 //Receive Control Message
-                String choice = new String(receiveBytes(inputStream));
+                String choice = new String(inputStream.readAllBytes());
 
                 System.out.printf("\tChoice: %s\n", choice);
 

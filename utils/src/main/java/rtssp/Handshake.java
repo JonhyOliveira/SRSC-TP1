@@ -1,6 +1,7 @@
 package rtssp;
 
 import utils.HandshakeException;
+import utils.LengthPreappendOutputStream;
 import utils.crypto.Ciphersuites;
 import utils.crypto.CryptoException;
 
@@ -14,17 +15,14 @@ import java.net.MalformedURLException;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.security.*;
-import java.security.cert.*;
 import java.security.cert.Certificate;
+import java.security.cert.*;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.RSAKeyGenParameterSpec;
 import java.security.spec.X509EncodedKeySpec;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Optional;
 import java.util.Properties;
-
-import static utils.StreamUtils.sendBytes;
 
 public class Handshake {
 
@@ -113,20 +111,21 @@ public class Handshake {
 
         ByteArrayOutputStream baos = new ByteArrayOutputStream();
         DataOutputStream outputStream = new DataOutputStream(baos);
+        OutputStream byteStreamer = new LengthPreappendOutputStream<>(outputStream, Short.class);
         Certificate[] certificateChain = new Certificate[] { myCert, CACert };
 
         try {
             // start with ciphersuites
             outputStream.writeShort(supportedCipherSuites);
             // key exchange
-            sendBytes(outputStream, keyAgreementPublicKey.getEncoded());
+            byteStreamer.write(keyAgreementPublicKey.getEncoded());
             // certificate chain
             outputStream.writeShort(certificateChain.length);
             for (Certificate certificate : certificateChain)
-                sendBytes(outputStream, certificate.getEncoded());
+                byteStreamer.write(certificate.getEncoded());
 
             // attach extra data
-            sendBytes(outputStream, extraBytes);
+            byteStreamer.write(extraBytes);
 
             // sign it
             outputStream.flush();
@@ -468,6 +467,5 @@ class HandshakeUtils {
             throw new SignatureException(e);
         }
     }
-
 
 }

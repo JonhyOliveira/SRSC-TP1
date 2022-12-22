@@ -2,22 +2,26 @@ package box;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 import rtssp.Handshake;
-import utils.*;
+import utils.HandshakeException;
+import utils.LengthPreappendInputStream;
+import utils.LengthPreappendOutputStream;
 import utils.crypto.CryptoException;
 
-import java.io.*;
+import java.io.Closeable;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
 import java.net.SocketAddress;
-import java.security.*;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.Security;
 import java.security.cert.CertificateException;
 import java.security.cert.TrustAnchor;
 import java.util.*;
 import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
-
-import static utils.StreamUtils.sendBytes;
 
 public class StreamRequester implements Closeable {
 
@@ -127,9 +131,8 @@ public class StreamRequester implements Closeable {
     }
 
     public void requestStream(String streamName) throws IOException {
-        DataOutputStream outputStream = new DataOutputStream(socket.getOutputStream());
-
-        sendBytes(outputStream, streamName.getBytes());
+        new LengthPreappendOutputStream<>(socket.getOutputStream(), Integer.class)
+                .write(streamName.getBytes());
     }
 
     @Override
@@ -139,9 +142,9 @@ public class StreamRequester implements Closeable {
 
     private void performHandshake() throws IOException, HandshakeException {
 
-        handshake.sendMessage(new LengthPreappendOutputStream(socket.getOutputStream()));
+        handshake.sendMessage(new LengthPreappendOutputStream<>(socket.getOutputStream(), Integer.class));
         availableStreams = List.of(parseStringArray(
-                handshake.receiveMessage(new LengthPreappendInputStream(socket.getInputStream()).readAllBytes())
+                handshake.receiveMessage(new LengthPreappendInputStream<>(socket.getInputStream(), Integer.class).readAllBytes())
         ));
 
         try {
