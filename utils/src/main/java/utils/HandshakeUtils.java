@@ -294,7 +294,7 @@ public class HandshakeUtils {
             throw new RuntimeException(e);
         }
 
-        /* validate chain *
+        /* validate chain */
         if (anchor != null) {
             try {
                 validateChain(anchor, certChain);

@@ -200,7 +200,7 @@ public class StreamRequestsServer {
                     Key k1 = server.trustStore.getKey("myKeys", server.cryptoProperties.getProperty("KSPassword").toCharArray());
 
                     if (k1 instanceof PrivateKey) {
-                        cert = server.trustStore.getCertificate("myKeys");
+                        cert = server.trustStore.getCertificate("myCert");
                         verifyCertificate((X509Certificate) cert);
                     }
                     else

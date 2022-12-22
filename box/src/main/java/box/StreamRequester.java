@@ -186,7 +186,7 @@ public class StreamRequester implements Closeable {
             Key k1 = keyStore.getKey("mykeys", properties.getProperty("KSPassword").toCharArray());
 
             if (k1 instanceof PrivateKey) {
-                cert1 = keyStore.getCertificate("myKeys");
+                cert1 = keyStore.getCertificate("myCert");
                 verifyCertificate((X509Certificate) cert1);
             }
             else
